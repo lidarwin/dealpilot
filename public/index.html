@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>DealPilot — Best Unit Price</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    :root { --ink:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#111827; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans"; background: linear-gradient(#fff,#f6f8fb); color:var(--ink); }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px; }
+    .card { background:#fff; border:1px solid var(--border); border-radius:16px; box-shadow:0 6px 24px rgba(0,0,0,.05); padding:16px; }
+    h1 { margin: 0 0 8px; }
+    .muted { color: var(--muted); }
+    .row { display:flex; gap:12px; align-items:center; }
+    .input { flex:1; padding:12px 14px; border:1px solid var(--border); border-radius:12px; font-size:16px; }
+    .btn { padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:#fff; cursor:pointer; }
+    .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .results { margin-top:16px; display:grid; gap:12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .pill { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    @media (max-width:700px){ .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>DealPilot</h1>
+      <div class="muted">Find best per-unit price, then open checkout and show the final total.</div>
+      <div class="row" style="margin-top:12px;">
+        <input id="q" class="input" placeholder="Huggies baby diaper size 4" value="Huggies baby diaper size 4"/>
+        <button id="go" class="btn primary">Find & Buy</button>
+      </div>
+      <div id="status" class="muted" style="margin-top:8px;"></div>
+      <div id="out" class="results"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const fmt = (n)=>'$'+Number(n ?? 0).toFixed(2);
+
+    $('go').onclick = async () => {
+      const query = $('q').value.trim();
+      if(!query){ alert('Enter a product'); return; }
+      $('status').textContent = 'Working...';
+      $('out').innerHTML = '';
+
+      try {
+        const r = await fetch('/api/find-and-buy', {
+          method:'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({ query })
+        });
+        const data = await r.json();
+        if(!r.ok){ throw new Error(data?.error || 'Request failed'); }
+
+        const cand = document.createElement('div');
+        cand.className='card';
+        cand.innerHTML = `
+          <div class="grid">
+            <div>
+              <div><strong>Best (per unit):</strong></div>
+              <div style="margin-top:6px;">
+                <div><span class="pill">${data.best.retailer}</span></div>
+                <div class="muted mono" style="margin-top:6px;">pack ${data.best.packSize} — unit ${(data.best.unitPrice).toFixed(3)}</div>
+                <div class="muted mono">base ${fmt(data.best.basePrice)}</div>
+              </div>
+            </div>
+            <div>
+              <div><strong>Checkout total (agent):</strong></div>
+              <div style="margin-top:6px;">
+                <div style="font-size:20px; font-weight:700">${fmt(data.checkout.finalPrice)}</div>
+                ${data.checkout.checkoutUrl ? `<div style="margin-top:6px;"><a href="${data.checkout.checkoutUrl}" target="_blank">Open checkout</a></div>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+        $('out').appendChild(cand);
+
+        const list = document.createElement('div');
+        list.className='card';
+        list.innerHTML = '<div style="font-weight:600; margin-bottom:8px;">Candidates</div>';
+        data.candidates.forEach(c => {
+          const row = document.createElement('div');
+          row.className='row';
+          row.style.justifyContent='space-between';
+          row.innerHTML = `
+            <div>
+              <div><span class="pill">${c.retailer}</span></div>
+              <div class="muted mono" style="font-size:12px;margin-top:4px;">pack ${c.packSize} — unit ${(c.unitPrice).toFixed(3)}</div>
+            </div>
+            <div class="row" style="gap:8px;">
+              <div class="mono">${fmt(c.basePrice)}</div>
+              <a class="btn" href="${c.productUrl}" target="_blank" rel="noreferrer">View</a>
+            </div>
+          `;
+          list.appendChild(row);
+        });
+        $('out').appendChild(list);
+
+        $('status').textContent = 'Done.';
+      } catch (e) {
+        $('status').textContent = 'Error: ' + (e?.message || e);
+      }
+    };
+  </script>
+</body>
+</html>
