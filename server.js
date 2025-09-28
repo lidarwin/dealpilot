@@ -50,38 +50,67 @@ Given a product query, return top 3 retailer offers for the US market with:
 - basePrice (number, pre-tax subtotal)
 Do not include commentary.`;
 
-    const user = `Product query: "${query}"
-Return strictly valid JSON array with up to 3 items.`;
+	const user = `
+	You are a coupon expert at finding the best online deal for customers.
 
-    const chat = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: user }
-      ],
-      response_format: { type: "json_object" } // fallbacks to JSON parsing; some SDKs use "json_schema"
-    });
+	You are provided with the product: \`${query}\`
+
+	Go search deal news sites extensively, and search all online retailers such as Target, Walmart, Amazon, Costco, etc. Account for every single discount or promo on each item's page (e.g., Subscribe & Save, coupon clipping, bundles, gift cards, RedCard, etc).
+
+	Return a ranked list by per-unit cost, from **least to most expensive**, in proper JSON format.
+
+	Each item should include:
+	- Retailer name
+	- Product title
+	- Variant (if applicable)
+	- Pack count or unit quantity
+	- Base price
+	- All discounts applied
+	- Final price after discounts
+	- Final per-unit price
+	- URL to product page
+	- Any special membership requirements or restrictions
+
+	Be concise but thorough. Use actual current listings only.
+	`;
+
+	const chat = await openai.chat.completions.create({
+	  model: "gpt-4o-mini",
+	  temperature: 0.2,
+	  messages: [
+	    { role: "user", content: user }
+	  ],
+	  response_format: { type: "json_object" }
+	});
+
+
+
 
     // Parse JSON robustly
     let candidates = [];
     try {
-      const raw = chat.choices?.[0]?.message?.content || "[]";
+      const raw = chat.choices[0].message.content;
       // When using response_format, some SDKs return a wrapped object; normalize:
+        console.log("<<< RAW GPT RESPONSE >>>");
+  	console.log(raw);
       const parsed = JSON.parse(raw);
-      candidates = Array.isArray(parsed) ? parsed : (parsed.items || parsed.results || []);
+	  console.log("<<< PARSED GPT RESPONSE >>>");
+	  console.log(JSON.stringify(parsed, null, 2));
+  	const deals = parsed.deals ?? [];
+      candidates = deals;
     } catch {
       candidates = [];
     }
 
     if (!Array.isArray(candidates) || candidates.length === 0) {
-      return res.status(502).json({ error: "LLM returned no candidates" });
+    	console.log(JSON.stringify(chat, null, 2));
+      return res.status(502).json({ error: `LLM returned no candidates "${query}"  "${chat}" "${user}"  ` });
     }
 
     // 2) Compute best per-unit offer from LLM (pre-verification)
     const withUnits = candidates
-      .filter(c => Number.isFinite(c.basePrice) && Number.isFinite(c.packSize) && c.packSize > 0)
-      .map(c => ({ ...c, unitPrice: c.basePrice / c.packSize }));
+      .filter(c => Number.isFinite(c.base_price) && Number.isFinite(c.pack_count) && c.pack_count > 0)
+      .map(c => ({ ...c, unitPrice: c.base_price / c.pack_count }));
     if (withUnits.length === 0) {
       return res.status(502).json({ error: "Candidates missing price/packSize" });
     }
